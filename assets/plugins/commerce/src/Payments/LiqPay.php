@@ -113,9 +113,8 @@ class LiqPay extends Payment implements \Commerce\Interfaces\Payment
             $this->modx->logEvent(0, 3, 'Payment process failed: ' . $e->getMessage(), 'Commerce Paymaster Payment');
             return false;
         }
+        echo 'success';
         return true;
     }
-
-
 
 }
