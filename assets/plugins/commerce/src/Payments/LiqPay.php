@@ -62,7 +62,11 @@ class LiqPay extends Payment implements \Commerce\Interfaces\Payment
 
             'paytypes' => 'apay,gpay,card,liqpay,privat24,masterpass,qr',
 
-            'result_url' => $this->modx->makeUrl($this->getSetting('redirect_after_payment'),'','','full'),
+            'result_url' => $this->modx->getConfig('site_url') . 'commerce/liqpay/payment-process/?' . http_build_query([
+                        'payment_hash' => $payment['hash'],
+                        'redirect'=>1,
+                    ]
+                ),
             'server_url' => $this->modx->getConfig('site_url') . 'commerce/liqpay/payment-process/?' . http_build_query([
                         'payment_hash' => $payment['hash'],
                     ]
@@ -89,32 +93,58 @@ class LiqPay extends Payment implements \Commerce\Interfaces\Payment
         $data = $_POST['data'];
         $sign = base64_encode(sha1($this->getSetting('private_key') . $data . $this->getSetting('private_key'), 1));
 
+
         if ($sign !== $_POST['signature']) {
-            return false;
+            return $this->error();
         }
         $paymentHash = $_REQUEST['payment_hash'];
         $orderProcessor = $this->commerce->loadProcessor();
 
         $payment = $orderProcessor->loadPaymentByHash($paymentHash);
 
-
         if (empty($payment)) {
-            return false;
+            return $this->error();
         }
 
         $parsedData = json_decode(base64_decode($data), true);
         if ($parsedData['status'] !== 'success') {
-            return false;
+            return $this->error();
+        }
+        if(intval($payment['paid']) !== 1){
+            try {
+                $orderProcessor->processPayment($payment['id'], $parsedData['amount']);
+            } catch (\Exception $e) {
+                $this->modx->logEvent(0, 3, 'Payment process failed: ' . $e->getMessage(), 'Commerce Paymaster Payment');
+                return $this->error();
+            }
         }
 
-        try {
-            $orderProcessor->processPayment($payment['id'], $parsedData['amount']);
-        } catch (\Exception $e) {
-            $this->modx->logEvent(0, 3, 'Payment process failed: ' . $e->getMessage(), 'Commerce Paymaster Payment');
-            return false;
+        return $this->success();
+    }
+
+    private function error(){
+        if(isset($_GET['redirect'])){
+            $this->modx->sendRedirect(MODX_BASE_URL . 'commerce/liqpay/payment-failed');
+        }
+        return false;
+    }
+
+
+    private function success(){
+        if(isset($_GET['redirect'])){
+            $this->modx->sendRedirect(MODX_BASE_URL . 'commerce/liqpay/payment-success?payment_hash=' . $_REQUEST['payment_hash']);
         }
         echo 'success';
         return true;
     }
 
+
+    public function getRequestPaymentHash()
+    {
+        if (isset($_REQUEST['payment_hash']) && is_scalar($_REQUEST['payment_hash'])) {
+            return $_REQUEST['payment_hash'];
+        }
+
+        return null;
+    }
 }
